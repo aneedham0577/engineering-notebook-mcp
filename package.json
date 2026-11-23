@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:run": "node scripts/test-run.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

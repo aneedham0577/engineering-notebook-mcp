@@ -8,15 +8,22 @@ import {
 import { z } from 'zod';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { NotebookManager } from './notebook.js';
 import { DiscordClient } from './discord.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// Look for .env in project root (one level above dist/ or src/)
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+// Also fall back to normal dotenv.config() for CWD
 dotenv.config();
 
 const notebookDataDir = process.env.NOTEBOOK_DATA_DIR 
-  || path.resolve(process.cwd(), '../engineering-notebook-editor/notebook/data');
+  || path.resolve(__dirname, '../../engineering-notebook-editor/notebook/data');
 const discordToken = process.env.DISCORD_BOT_TOKEN || '';
 const defaultGuildId = process.env.DISCORD_GUILD_ID || '';
+
 
 const notebookManager = new NotebookManager(notebookDataDir);
 const discordClient = new DiscordClient(discordToken);
@@ -39,13 +46,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'discord_list_channels',
-        description: 'List channels and threads in the Discord server (guild).',
+        description: 'List channels and threads in the Discord club server. If guildId is not provided, automatically uses the default configured server.',
         inputSchema: {
           type: 'object',
           properties: {
             guildId: {
               type: 'string',
-              description: 'Discord Guild/Server ID. Uses DISCORD_GUILD_ID from .env if omitted.',
+              description: 'Optional Discord Guild/Server ID. Defaults to the preconfigured server if omitted.',
             },
           },
         },
@@ -82,6 +89,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {},
+        },
+      },
+      {
+        name: 'notebook_list_entries',
+        description: 'List existing entries in the notebook with their titles, dates, phases, and authors.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'number',
+              description: 'Maximum number of entries to return (default 20).',
+            },
+          },
+        },
+      },
+      {
+        name: 'notebook_read_entry',
+        description: 'Read the full content and metadata of a specific notebook entry by its ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            entryId: {
+              type: 'string',
+              description: 'The UUID of the entry to read.',
+            },
+          },
+          required: ['entryId'],
         },
       },
       {
@@ -219,6 +253,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const members = await notebookManager.getTeamMembers();
         return {
           content: [{ type: 'text', text: JSON.stringify(members, null, 2) }],
+        };
+      }
+
+      case 'notebook_list_entries': {
+        const limit = typeof args?.limit === 'number' ? args.limit : 20;
+        const entries = await notebookManager.listEntries(limit);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(entries, null, 2) }],
+        };
+      }
+
+      case 'notebook_read_entry': {
+        const entryId = args?.entryId as string;
+        const entry = await notebookManager.getEntryContent(entryId);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(entry, null, 2) }],
         };
       }
 

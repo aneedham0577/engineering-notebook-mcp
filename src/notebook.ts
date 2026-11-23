@@ -43,6 +43,36 @@ export class NotebookManager {
     return data.team?.members || {};
   }
 
+  async listEntries(limit = 20): Promise<Array<{ id: string; title: string; date: string; phase: string; authors: string[]; isTemplate?: boolean }>> {
+    const data = await this.loadNotebook();
+    const entries = data.entries || {};
+    return Object.entries(entries)
+      .map(([id, e]) => ({
+        id,
+        title: e.title,
+        date: e.date,
+        phase: e.phase,
+        authors: e.authors || [],
+        isTemplate: e.isTemplate
+      }))
+      .slice(0, limit);
+  }
+
+  async getEntryContent(entryId: string): Promise<{ meta: NotebookEntryMeta; content: TipTapDoc }> {
+    const data = await this.loadNotebook();
+    const meta = data.entries?.[entryId];
+    if (!meta) {
+      throw new Error(`Entry ${entryId} not found in notebook.json`);
+    }
+
+    const filePath = path.resolve(this.dataDir, meta.filename.replace(/^data\//, ''));
+    const raw = await fs.readFile(filePath, 'utf-8');
+    const content = JSON.parse(raw);
+
+    return { meta, content };
+  }
+
+
   async resolveAuthors(discordNamesOrIds: string[]): Promise<ResolvedAuthor[]> {
     const notebook = await this.loadNotebook();
     const members = notebook.team?.members || {};
@@ -189,13 +219,39 @@ export class NotebookManager {
     const existingOrders = Object.values(notebook.entries || {}).map((e) => e.order || 0);
     const nextOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 0;
 
+    let parsedNodes: TipTapNode[] = [];
+    if (params.contentNodes) {
+      if (typeof params.contentNodes === 'string') {
+        try {
+          parsedNodes = JSON.parse(params.contentNodes);
+        } catch {
+          parsedNodes = [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: params.contentNodes }]
+            }
+          ];
+        }
+      } else if (Array.isArray(params.contentNodes)) {
+        parsedNodes = params.contentNodes;
+      }
+    }
+
+    // Ensure all headings have an id attribute required by the editor
+    for (const node of parsedNodes) {
+      if (node.type === 'heading') {
+        if (!node.attrs) node.attrs = { level: 2 };
+        if (!node.attrs.id) node.attrs.id = uuidv7();
+      }
+    }
+
     // Build TipTap Document structure
     const doc: TipTapDoc = {
       version: 3,
       content: {
         type: 'doc',
-        content: params.contentNodes && params.contentNodes.length > 0
-          ? params.contentNodes
+        content: parsedNodes.length > 0
+          ? parsedNodes
           : [
               {
                 type: 'heading',
